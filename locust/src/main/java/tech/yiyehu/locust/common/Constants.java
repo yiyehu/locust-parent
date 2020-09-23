@@ -341,6 +341,9 @@ public class Constants {
 
     public static final String SEMICOLON_SEPARATOR = ";";
 
+
+    public static final String COLON_SEPARATOR = ":";
+
     public static final Pattern SEMICOLON_SPLIT_PATTERN = Pattern
             .compile("\\s*[;]+\\s*");
 

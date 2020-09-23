@@ -24,15 +24,6 @@ public class InvokerInvocationHandler implements InvocationHandler {
         if (method.getDeclaringClass() == Object.class) {
             return method.invoke(invoker, args);
         }
-        if ("toString".equals(methodName) && parameterTypes.length == 0) {
-            return invoker.toString();
-        }
-        if ("hashCode".equals(methodName) && parameterTypes.length == 0) {
-            return invoker.hashCode();
-        }
-        if ("equals".equals(methodName) && parameterTypes.length == 1) {
-            return invoker.equals(args[0]);
-        }
         return invoker.invoke(new RpcInvocation(method,args));
     }
 }
