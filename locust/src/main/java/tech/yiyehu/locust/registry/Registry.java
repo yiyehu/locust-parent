@@ -6,6 +6,9 @@ import tech.yiyehu.locust.rpc.exception.RpcException;
 import java.util.List;
 
 public interface Registry {
+    String REGISTRY_EVENT = "REGISTRY_EVENT";
+    String UNREGISTRY_EVENT = "UNREGISTRY_EVENT";
+
     void register(URL url) throws RpcException;
 
     void unregister(URL url) throws RpcException;
@@ -16,6 +19,7 @@ public interface Registry {
 
     /**
      * Query a service with url
+     *
      * @param url
      * @return
      */

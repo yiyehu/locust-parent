@@ -3,13 +3,19 @@ package tech.yiyehu.locust;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import tech.yiyehu.locust.config.ApplicationConfig;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
+
 public class LocustApplication {
 
     public static void main(String[] args) {
-        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
-        context.scan("tech.yiyehu.locust");
-        context.refresh();
-        ApplicationConfig config = (ApplicationConfig) context.getBean("applicationConfig");
-        config.hashCode();
+        try{
+            throw new FileNotFoundException();
+        }
+        catch (FileNotFoundException e){
+
+        }catch (Exception e){
+
+        }
     }
 }

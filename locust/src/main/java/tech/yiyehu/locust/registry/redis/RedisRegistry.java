@@ -1,9 +1,12 @@
 package tech.yiyehu.locust.registry.redis;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPubSub;
 import tech.yiyehu.locust.common.Constants;
 import tech.yiyehu.locust.common.URL;
 import tech.yiyehu.locust.registry.AbstractRegistry;
@@ -17,6 +20,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class RedisRegistry extends AbstractRegistry {
+
+    private Logger logger = LoggerFactory.getLogger(RedisRegistry.class);
 
     private static final int DEFAULT_REDIS_PORT = 6379;
 
@@ -78,16 +83,19 @@ public class RedisRegistry extends AbstractRegistry {
             host = address;
             port = DEFAULT_REDIS_PORT;
         }
-        this.jedisPools.put(address, new JedisPool(config, host, port,
+        JedisPool jedisPool = new JedisPool(config, host, port,
                 url.getParameter(Constants.TIMEOUT_KEY, Constants.DEFAULT_TIMEOUT), StringUtils.isEmpty(url.getPassword()) ? null : url.getPassword(),
-                url.getParameter("db.index", 0)));
+                url.getParameter("db.index", 0));
+
+        jedisPool.getResource().subscribe(new RegistryEventPubSubListener(),REGISTRY_EVENT);
+        this.jedisPools.put(address, jedisPool);
     }
 
     @Override
     public void register(URL url) throws RpcException {
         String key = getRegistryIdentifyKey(url);
         if(StringUtils.isEmpty(key)){
-//            logger.warn("");
+            logger.warn("");
             return;
         }
         String value = url.toFullString();
@@ -111,7 +119,7 @@ public class RedisRegistry extends AbstractRegistry {
         }
         if (exception != null) {
             if (success) {
-//                logger.warn(exception.getMessage(), exception);
+                logger.warn(exception.getMessage(), exception);
             } else {
                 throw exception;
             }
@@ -234,5 +242,15 @@ public class RedisRegistry extends AbstractRegistry {
             }
         }
         this.jedisPools.clear();
+    }
+
+    private class RegistryEventPubSubListener extends JedisPubSub {
+        private Logger logger = LoggerFactory.getLogger(RegistryEventPubSubListener.class);
+
+        @Override
+        public void onMessage(String channel, String message) {
+
+            logger.info("onMessage: channel[{}], message[{}]",channel, message);
+        }
     }
 }
