@@ -1,6 +1,5 @@
 package tech.yiyehu.locust.common;
 
-import org.springframework.util.CollectionUtils;
 import tech.yiyehu.locust.common.util.NetUtils;
 
 import java.io.Serializable;

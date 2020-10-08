@@ -24,4 +24,6 @@ public interface Registry {
      * @return
      */
     List<URL> lookup(URL url);
+
+    void destroy();
 }

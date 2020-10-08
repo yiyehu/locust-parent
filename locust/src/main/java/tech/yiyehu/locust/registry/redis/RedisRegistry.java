@@ -13,10 +13,7 @@ import tech.yiyehu.locust.registry.AbstractRegistry;
 import tech.yiyehu.locust.registry.NotifyListener;
 import tech.yiyehu.locust.rpc.exception.RpcException;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class RedisRegistry extends AbstractRegistry {
@@ -25,10 +22,10 @@ public class RedisRegistry extends AbstractRegistry {
 
     private static final int DEFAULT_REDIS_PORT = 6379;
 
-    //多注册中心
-    private final Map<String, JedisPool> jedisPools = new ConcurrentHashMap();
-    //多注册中心
-    private final Map<String, Thread> subscribeThreads = new ConcurrentHashMap();
+    //单注册中心
+    private JedisPool jedisPool;
+    //service subscriber
+    private final Map<String, EventSubscriber> subscribeThreads = new ConcurrentHashMap();
 
     private int reconnectPeriod;
 
@@ -89,15 +86,22 @@ public class RedisRegistry extends AbstractRegistry {
         JedisPool jedisPool = new JedisPool(config, host, port,
                 url.getParameter(Constants.TIMEOUT_KEY, Constants.DEFAULT_TIMEOUT), StringUtils.isEmpty(url.getPassword()) ? null : url.getPassword(),
                 url.getParameter("db.index", 0));
+        this.jedisPool = jedisPool;
+//        subscribeThreads.put(address, new EventSubscriber(jedisPool,toServicePath(url)));
+    }
 
-        jedisPool.getResource().subscribe(new RegistryEventPubSubListener(), REGISTER_EVENT);
-        this.jedisPools.put(address, jedisPool);
+    private String toServicePath(URL url) {
+        return url.getServiceInterface();
+    }
+
+    private String toCategoryPath(URL url) {
+        return toServicePath(url) + Constants.PATH_SEPARATOR + url.getParameter(Constants.CATEGORY_KEY, Constants.DEFAULT_CATEGORY);
     }
 
     @Override
     public void register(URL url) throws RpcException {
-        String key = getRegistryIdentifyKey(url);
-        if(StringUtils.isEmpty(key)){
+        String key = toCategoryPath(url);
+        if (StringUtils.isEmpty(key)) {
             logger.warn("");
             return;
         }
@@ -105,20 +109,17 @@ public class RedisRegistry extends AbstractRegistry {
         String expire = String.valueOf(System.currentTimeMillis() + expirePeriod);
         boolean success = false;
         RpcException exception = null;
-        for (Map.Entry<String, JedisPool> entry : jedisPools.entrySet()) {
-            JedisPool jedisPool = entry.getValue();
+        try {
+            Jedis jedis = jedisPool.getResource();
             try {
-                Jedis jedis = jedisPool.getResource();
-                try {
-                    jedis.hset(key, value, expire);
-                    jedis.publish(key, Constants.REGISTER);
-                    success = true;
-                } finally {
-                    jedis.close();
-                }
-            } catch (Throwable t) {
-                exception = new RpcException("Failed to register service to redis registry. registry: " + entry.getKey() + ", service: " + url + ", cause: " + t.getMessage(), t);
+                jedis.hset(key, value, expire);
+                jedis.publish(key, Constants.REGISTER);
+                success = true;
+            } finally {
+                jedis.close();
             }
+        } catch (Throwable t) {
+            exception = new RpcException("Failed to register service to redis registry. registry: " + registryUrl.getAddress() + ", service: " + url + ", cause: " + t.getMessage(), t);
         }
         if (exception != null) {
             if (success) {
@@ -129,38 +130,31 @@ public class RedisRegistry extends AbstractRegistry {
         }
     }
 
-    private String getRegistryIdentifyKey(URL url) {
-        return url.getParameter(Constants.INTERFACE_KEY);
-    }
-
     @Override
     public void unregister(URL url) throws RpcException {
-        String key = getRegistryIdentifyKey(url);
-        if(StringUtils.isEmpty(key)){
-//            logger.warn("");
+        String key = toCategoryPath(url);
+        if (StringUtils.isEmpty(key)) {
+            logger.warn("");
             return;
         }
         String value = url.toFullString();
         boolean success = false;
         RpcException exception = null;
-        for (Map.Entry<String, JedisPool> entry : jedisPools.entrySet()) {
-            JedisPool jedisPool = entry.getValue();
+        try {
+            Jedis jedis = jedisPool.getResource();
             try {
-                Jedis jedis = jedisPool.getResource();
-                try {
-                    jedis.hdel(key, value);
-                    jedis.publish(key, Constants.UNREGISTER);
-                    success = true;
-                } finally {
-                    jedis.close();
-                }
-            } catch (Throwable t) {
-                exception = new RpcException("Failed to unregister service to redis registry. registry: " + entry.getKey() + ", service: " + url + ", cause: " + t.getMessage(), t);
+                jedis.hdel(key, value);
+                jedis.publish(key, Constants.UNREGISTER);
+                success = true;
+            } finally {
+                jedis.close();
             }
+        } catch (Throwable t) {
+            exception = new RpcException("Failed to unregister service to redis registry. registry: " + registryUrl.getAddress() + ", service: " + url + ", cause: " + t.getMessage(), t);
         }
         if (exception != null) {
             if (success) {
-//                logger.warn(exception.getMessage(), exception);
+                logger.warn(exception.getMessage(), exception);
             } else {
                 throw exception;
             }
@@ -169,32 +163,26 @@ public class RedisRegistry extends AbstractRegistry {
 
     @Override
     public void subscribe(URL url, NotifyListener listener) throws RpcException {
-        String service = getRegistryIdentifyKey(url);
+        String service = toServicePath(url);
         boolean success = false;
         RpcException exception = null;
-        for (Map.Entry<String, JedisPool> entry : jedisPools.entrySet()) {
-            JedisPool jedisPool = entry.getValue();
+        try {
+            Jedis jedis = jedisPool.getResource();
             try {
-                Jedis jedis = jedisPool.getResource();
-                try {
-                    if (service.endsWith(Constants.ANY_VALUE)) {
-                        Set<String> keys = jedis.keys(service);
-
-                    } else {
-
-                    }
-                    success = true;
-                    break; // Just read one server's data
-                } finally {
-                    jedis.close();
+                if (service.endsWith(Constants.ANY_VALUE)) {
+                    Set<String> keys = jedis.keys(service);
+                    doNotify(jedis, keys);
                 }
-            } catch (Throwable t) { // Try the next server
-                exception = new RpcException("Failed to subscribe service from redis registry. registry: " + entry.getKey() + ", service: " + url + ", cause: " + t.getMessage(), t);
+                success = true;
+            } finally {
+                jedis.close();
             }
+        } catch (Throwable t) { // Try the next server
+            exception = new RpcException("Failed to subscribe service from redis registry. registry: " + registryUrl.getAddress() + ", service: " + url + ", cause: " + t.getMessage(), t);
         }
         if (exception != null) {
             if (success) {
-//                logger.warn(exception.getMessage(), exception);
+                logger.warn(exception.getMessage(), exception);
             } else {
                 throw exception;
             }
@@ -218,42 +206,95 @@ public class RedisRegistry extends AbstractRegistry {
 
     @Override
     public boolean isAvailable() {
-        for (JedisPool jedisPool : jedisPools.values()) {
+        try {
+            Jedis jedis = jedisPool.getResource();
             try {
-                Jedis jedis = jedisPool.getResource();
-                try {
-                    if (jedis.isConnected()) {
-                        return true; // At least one single machine is available.
-                    }
-                } finally {
-                    jedis.close();
+                if (jedis.isConnected()) {
+                    return true; // At least one single machine is available.
                 }
-            } catch (Throwable t) {
+            } finally {
+                jedis.close();
             }
+        } catch (Throwable t) {
         }
         return false;
     }
 
     @Override
     public void destroy() {
-        for (Map.Entry<String, JedisPool> entry : jedisPools.entrySet()) {
-            JedisPool jedisPool = entry.getValue();
-            try {
-                jedisPool.destroy();
-            } catch (Throwable t) {
-//                logger.warn("Failed to destroy the redis registry client. registry: " + entry.getKey() + ", cause: " + t.getMessage(), t);
-            }
+        try {
+            jedisPool.destroy();
+        } catch (Throwable t) {
+            logger.warn("Failed to destroy the redis registry client. registry: " + registryUrl.getAddress() + ", cause: " + t.getMessage(), t);
         }
-        this.jedisPools.clear();
     }
 
-    private class RegistryEventPubSubListener extends JedisPubSub {
-        private Logger logger = LoggerFactory.getLogger(RegistryEventPubSubListener.class);
+    private class EventSubscriber extends Thread {
+        private volatile String service;
+        private volatile JedisPool jedisPool;
+
+        public EventSubscriber(JedisPool jedisPool, String service) {
+            super.setDaemon(true);
+            super.setName("LocustRedisSubscriber");
+            this.jedisPool = jedisPool;
+            this.service = service;
+        }
 
         @Override
-        public void onMessage(String channel, String message) {
+        public void run() {
+            try {
+                String key = service + Constants.REGISTRY_SEPARATOR + Constants.ANY_VALUE;
+                jedisPool.getResource().subscribe(new RegistryEventPubSub(jedisPool), key);
 
-            logger.info("onMessage: channel[{}], message[{}]",channel, message);
+            } catch (Throwable t) {
+                logger.error(t.getMessage(), t);
+            }
         }
+
+        public void shutdown() {
+            try {
+                jedisPool.getResource().disconnect();
+            } catch (Throwable t) {
+                logger.warn(t.getMessage(), t);
+            }
+        }
+    }
+
+    private class RegistryEventPubSub extends JedisPubSub {
+        private Logger logger = LoggerFactory.getLogger(RegistryEventPubSub.class);
+        private final JedisPool jedisPool;
+
+        public RegistryEventPubSub(JedisPool jedisPool) {
+            this.jedisPool = jedisPool;
+        }
+
+        @Override
+        public void onMessage(String key, String msg) {
+            //TODO doNotify
+
+            if (logger.isInfoEnabled()) {
+                logger.info("onMessage: channel[{}], message[{}]", key, msg);
+            }
+            if (msg.equals(Constants.REGISTER)
+                    || msg.equals(Constants.UNREGISTER)) {
+                try {
+                    Jedis jedis = jedisPool.getResource();
+                    try {
+                        doNotify(jedis,key);
+                    } finally {
+                        jedis.close();
+                    }
+                } catch (Throwable t) {
+                    logger.error(t.getMessage(), t);
+                }
+            }
+        }
+    }
+
+    private void doNotify(Jedis jedis, Set<String> urls) {
+        //TODO doNotify
+    }
+    private void doNotify(Jedis jedis, String serviceKey) {
+        //TODO doNotify
     }
 }
