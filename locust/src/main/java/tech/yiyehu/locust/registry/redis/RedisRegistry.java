@@ -25,7 +25,10 @@ public class RedisRegistry extends AbstractRegistry {
 
     private static final int DEFAULT_REDIS_PORT = 6379;
 
+    //多注册中心
     private final Map<String, JedisPool> jedisPools = new ConcurrentHashMap();
+    //多注册中心
+    private final Map<String, Thread> subscribeThreads = new ConcurrentHashMap();
 
     private int reconnectPeriod;
 
@@ -87,7 +90,7 @@ public class RedisRegistry extends AbstractRegistry {
                 url.getParameter(Constants.TIMEOUT_KEY, Constants.DEFAULT_TIMEOUT), StringUtils.isEmpty(url.getPassword()) ? null : url.getPassword(),
                 url.getParameter("db.index", 0));
 
-        jedisPool.getResource().subscribe(new RegistryEventPubSubListener(),REGISTRY_EVENT);
+        jedisPool.getResource().subscribe(new RegistryEventPubSubListener(), REGISTER_EVENT);
         this.jedisPools.put(address, jedisPool);
     }
 

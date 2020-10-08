@@ -52,6 +52,6 @@ public class LocustAutoConfiguration {
     @ConditionalOnMissingBean
     @ConfigurationProperties("locust.monitor")
     public MonitorConfig monitorConfig() {
-        return new MonitorConfig();
+        return new MonitorConfig("monitor");
     }
 }

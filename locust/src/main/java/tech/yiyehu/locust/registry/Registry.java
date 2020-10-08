@@ -6,8 +6,8 @@ import tech.yiyehu.locust.rpc.exception.RpcException;
 import java.util.List;
 
 public interface Registry {
-    String REGISTRY_EVENT = "REGISTRY_EVENT";
-    String UNREGISTRY_EVENT = "UNREGISTRY_EVENT";
+    String REGISTER_EVENT = "REGISTER_EVENT";
+    String UNREGISTER_EVENT = "UNREGISTER_EVENT";
 
     void register(URL url) throws RpcException;
 
